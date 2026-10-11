@@ -31,3 +31,17 @@ A single loop over the array prints names in the order they are stored, which wo
 `ioctl` with the `TIOCGWINSZ` request asks the terminal driver for the current window size and fills a `struct winsize`. `ws_col` gives the real width in characters, so my program can calculate how many columns fit on the actual screen.
 
 If I only used a fixed width of 80, the output would not adapt to the terminal. On a wide terminal, much of the screen would be wasted because I would use fewer columns than could fit. On a narrow terminal (less than 80 columns), the lines would be longer than the screen, so they would wrap in the middle of the columns and the layout would be broken. Resizing the window would never change the output.
+
+## Feature 4: Horizontal Column Display (-x) (v1.3.0)
+
+### Q1. Compare the implementation complexity of "down then across" (vertical) printing versus "across" (horizontal) printing. Which one requires more pre-calculation and why?
+
+The vertical ("down then across") layout is more complex and needs more pre-calculation. Before printing anything I have to know the column width, the number of columns that fit in the terminal, and the number of rows (the total count divided by the number of columns, rounded up). Only then can I print row by row, picking `names[r + c * rows]` for each column. The order the names are stored in is different from the order I print them in, so I need this index calculation, and I need to handle the last column which may be shorter.
+
+The horizontal ("across") layout is simpler. The names are printed in the same order as they are stored in the array. I only need the column width (from the longest name) and a running counter of the current position on the line. If the next name would go past the terminal width, I print a newline and reset the counter. There is no row count and no index formula, so it needs much less pre-calculation.
+
+### Q2. Describe the strategy used to manage the different display modes (-l, -x, default). How did the program decide which function to call?
+
+I used an enum, `display_mode_t`, with three values: `MODE_DEFAULT`, `MODE_LONG` and `MODE_HORIZONTAL`. In `main`, the `getopt()` loop sets this variable: `-l` sets `MODE_LONG` and `-x` sets `MODE_HORIZONTAL`. If no option is given, it stays `MODE_DEFAULT`. If both options are given, the last one wins.
+
+The mode is passed to `do_ls()`. If the mode is `MODE_LONG`, it calls `do_ls_long()`. Otherwise it reads all the filenames into a dynamic array once, then checks the mode: for `MODE_HORIZONTAL` it calls `print_horizontal()`, and for the default it calls `print_vertical()`. After printing, the array is freed. Using one variable and one decision point keeps the code simple, and adding a new mode later only needs a new enum value and a new case.
