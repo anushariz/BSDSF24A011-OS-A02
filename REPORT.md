@@ -45,3 +45,19 @@ The horizontal ("across") layout is simpler. The names are printed in the same o
 I used an enum, `display_mode_t`, with three values: `MODE_DEFAULT`, `MODE_LONG` and `MODE_HORIZONTAL`. In `main`, the `getopt()` loop sets this variable: `-l` sets `MODE_LONG` and `-x` sets `MODE_HORIZONTAL`. If no option is given, it stays `MODE_DEFAULT`. If both options are given, the last one wins.
 
 The mode is passed to `do_ls()`. If the mode is `MODE_LONG`, it calls `do_ls_long()`. Otherwise it reads all the filenames into a dynamic array once, then checks the mode: for `MODE_HORIZONTAL` it calls `print_horizontal()`, and for the default it calls `print_vertical()`. After printing, the array is freed. Using one variable and one decision point keeps the code simple, and adding a new mode later only needs a new enum value and a new case.
+
+## Feature 5: Alphabetical Sort (v1.4.0)
+
+### Q1. Why is it necessary to read all directory entries into memory before you can sort them? What are the potential drawbacks of this approach for directories containing millions of files?
+
+The `readdir()` function returns entries in the order they are stored on the filesystem, which is not alphabetical. To know which name should come first, the program has to compare it with every other name, so it cannot print the first name until it has seen all of them. Sorting is not possible on a stream of entries that are read and printed one at a time, so I store all the names in a dynamic array, sort the array, and only then print.
+
+For a directory with millions of files this has drawbacks. It uses a lot of memory, because every filename is copied with `strdup()` and the array of pointers also needs space, which can reach hundreds of megabytes. Nothing is printed until the whole directory has been read and sorted, so the user waits a long time for the first output. The array has to grow with `realloc()`, which may copy a large block of memory, and sorting takes O(n log n) time. This is why the real `ls` has options such as `-f` or `-U` that skip sorting, so entries are printed as they are read.
+
+### Q2. Explain the purpose and signature of the comparison function required by qsort(). How does it work, and why must it take const void * arguments?
+
+The comparison function tells `qsort()` how to order two elements. Its signature is `int compare(const void *a, const void *b)`. It must return a negative number if the first element should come before the second, zero if they are equal, and a positive number if the first should come after the second.
+
+`qsort()` is a generic function that can sort an array of any type, such as ints, structs or strings. It does not know the type of the elements, so it cannot call a function with a specific type. Using `const void *` lets the same `qsort()` accept any element type, and `const` promises that the comparison will not modify the data. Inside the function I cast the pointers back to the real type.
+
+In my program the array holds `char *` strings. `qsort()` passes a pointer to each element, so `a` and `b` are really pointers to a `char *`, that is `char **`. I cast them with `*(const char **)a`, dereference once to get the string, and return `strcmp(s1, s2)`. I cannot pass `strcmp` to `qsort()` directly, because `strcmp` expects `char *` arguments but `qsort()` would give it `char **`.
