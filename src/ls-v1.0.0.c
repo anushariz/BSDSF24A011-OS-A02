@@ -1,10 +1,12 @@
 /*
-* Programming Assignment 02: ls-v1.5.0
-* Adds colorized output based on file type (ANSI escape codes)
+* Programming Assignment 02: ls-v1.6.0
+* Adds the -R (recursive listing) option
 * Usage:
-*       $ ./bin/ls          (down then across, sorted, colored)
-*       $ ./bin/ls -l       (long listing, colored names)
-*       $ ./bin/ls -x       (across, colored)
+*       $ ./bin/ls
+*       $ ./bin/ls -l
+*       $ ./bin/ls -x
+*       $ ./bin/ls -R [directory...]
+*       $ ./bin/ls -lR [directory...]
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +38,7 @@ typedef enum {
     MODE_HORIZONTAL    /* -x */
 } display_mode_t;
 
-void do_ls(const char *dir, display_mode_t mode);
+void do_ls(const char *dir, display_mode_t mode, int recursive);
 void do_ls_long(const char *dir, char **names, int count);
 char **read_names(const char *dir, int *count, size_t *maxlen);
 void free_names(char **names, int count);
@@ -53,9 +55,10 @@ void get_group(gid_t gid, char *buf, size_t n);
 int main(int argc, char *argv[])
 {
     int opt;
+    int recursive = 0;                    /* set by -R */
     display_mode_t mode = MODE_DEFAULT;
 
-    while ((opt = getopt(argc, argv, "lx")) != -1)
+    while ((opt = getopt(argc, argv, "lxR")) != -1)
     {
         switch (opt)
         {
@@ -65,23 +68,37 @@ int main(int argc, char *argv[])
         case 'x':
             mode = MODE_HORIZONTAL;
             break;
+        case 'R':
+            recursive = 1;
+            break;
         default:
-            fprintf(stderr, "Usage: %s [-l | -x] [directory...]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-l | -x] [-R] [directory...]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
     if (optind == argc)
     {
-        do_ls(".", mode);
+        do_ls(".", mode, recursive);
     }
     else
     {
         for (int i = optind; i < argc; i++)
         {
-            printf("Directory listing of %s : \n", argv[i]);
-            do_ls(argv[i], mode);
-            puts("");
+            if (recursive)
+            {
+                if (i > optind)
+                    puts("");             /* blank line between top-level dirs */
+            }
+            else
+            {
+                printf("Directory listing of %s : \n", argv[i]);
+            }
+
+            do_ls(argv[i], mode, recursive);
+
+            if (!recursive)
+                puts("");
         }
     }
     return 0;
@@ -96,15 +113,20 @@ int compare_names(const void *a, const void *b)
     return strcmp(s1, s2);
 }
 
-/* Read all names, sort them, then call the right display function */
-void do_ls(const char *dir, display_mode_t mode)
+/* Read all names, sort them, display them, and (with -R) recurse into
+   every subdirectory using its full path */
+void do_ls(const char *dir, display_mode_t mode, int recursive)
 {
     int count = 0;
     size_t maxlen = 0;
+
+    if (recursive)
+        printf("%s:\n", dir);             /* directory header, like real ls -R */
+
     char **names = read_names(dir, &count, &maxlen);
     if (names == NULL || count == 0)
     {
-        free(names);
+        free(names);                      /* base case: nothing to list or recurse into */
         return;
     }
 
@@ -116,6 +138,35 @@ void do_ls(const char *dir, display_mode_t mode)
         print_horizontal(dir, names, count, maxlen);
     else
         print_vertical(dir, names, count, maxlen);
+
+    if (recursive)
+    {
+        /* avoid "dir//name" when dir already ends with a slash */
+        size_t dlen = strlen(dir);
+        const char *sep = (dlen > 0 && dir[dlen - 1] == '/') ? "" : "/";
+
+        for (int i = 0; i < count; i++)
+        {
+            char path[PATH_MAX];
+            struct stat st;
+
+            if (strcmp(names[i], ".") == 0 || strcmp(names[i], "..") == 0)
+                continue;
+
+            /* build the full path: dir/name */
+            snprintf(path, sizeof(path), "%s%s%s", dir, sep, names[i]);
+
+            /* lstat does not follow symlinks, so a link to a directory is not entered */
+            if (lstat(path, &st) == -1)
+                continue;
+
+            if (S_ISDIR(st.st_mode))
+            {
+                putchar('\n');            /* blank line before the next header */
+                do_ls(path, mode, recursive);   /* recursive call */
+            }
+        }
+    }
 
     free_names(names, count);
 }
