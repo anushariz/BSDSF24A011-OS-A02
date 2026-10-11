@@ -61,3 +61,21 @@ The comparison function tells `qsort()` how to order two elements. Its signature
 `qsort()` is a generic function that can sort an array of any type, such as ints, structs or strings. It does not know the type of the elements, so it cannot call a function with a specific type. Using `const void *` lets the same `qsort()` accept any element type, and `const` promises that the comparison will not modify the data. Inside the function I cast the pointers back to the real type.
 
 In my program the array holds `char *` strings. `qsort()` passes a pointer to each element, so `a` and `b` are really pointers to a `char *`, that is `char **`. I cast them with `*(const char **)a`, dereference once to get the string, and return `strcmp(s1, s2)`. I cannot pass `strcmp` to `qsort()` directly, because `strcmp` expects `char *` arguments but `qsort()` would give it `char **`.
+
+## Feature 6: Colorized Output Based on File Type (v1.5.0)
+
+### Q1. How do ANSI escape codes work to produce color in a standard Linux terminal? Show the specific code sequence for printing text in green.
+
+ANSI escape codes are special sequences of characters that the terminal interprets as commands instead of printing them. A sequence starts with the ESC character (ASCII 27, written `\033` in octal in C), followed by `[`, then one or more numbers separated by semicolons, and ending with the letter `m`. The numbers select a colour or style, for example 31 for red, 32 for green, 34 for blue and 7 for reverse video. After that command, all text that follows is printed in that style until it is changed. The sequence `\033[0m` resets everything back to the default, so it is printed after the filename to stop the colour from affecting the rest of the output.
+
+To print text in green, the code is:
+
+`printf("\033[0;32m%s\033[0m", filename);`
+
+Here `\033[0;32m` switches to green, `%s` is the filename, and `\033[0m` resets the colour. The escape codes take up bytes in the string but no space on the screen, so in my column output I pad using the length of the plain filename and not the length of the coloured string.
+
+### Q2. To color an executable file, you need to check its permission bits. Explain which bits in the st_mode field you need to check to determine if a file is executable by the owner, group, or others.
+
+The execute permission is stored in three separate bits of `st_mode`, one for each class of user. `S_IXUSR` (octal 0100) is the execute bit for the owner, `S_IXGRP` (octal 0010) is the execute bit for the group, and `S_IXOTH` (octal 0001) is the execute bit for others. I test a bit with the bitwise AND operator. For example, `st_mode & S_IXUSR` is non-zero if the owner can execute the file.
+
+To decide if a file should be coloured as an executable, I check whether any of the three bits is set, using `st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)`. Directories also have the execute bit set (it means permission to enter them), so the program must check for directories first with `S_ISDIR()`, and only then test the execute bits for regular files.
